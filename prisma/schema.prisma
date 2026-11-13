@@ -1,0 +1,278 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  /// Full access, including managing other admins.
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum Platform {
+  YOUTUBE
+  INSTAGRAM
+  TIKTOK
+  TELEGRAM
+}
+
+enum OrderType {
+  YOUTUBE_SUBSCRIBERS
+  INSTAGRAM_FOLLOWERS
+  CHANNEL_PROMOTION
+  ACCOUNT_PURCHASE
+  ACCOUNT_SALE
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum ListingStatus {
+  IN_REVIEW
+  PUBLISHED
+  SOLD
+  ARCHIVED
+}
+
+enum NotificationKind {
+  MANUAL
+  ORDER_UPDATE
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  phone        String?
+  passwordHash String
+  role         Role       @default(CUSTOMER)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  sessions      Session[]
+  orders        Order[]
+  notifications Notification[]
+  files         File[]
+  listings      Listing[]
+}
+
+/// One row per signed-in device. The refresh token is stored hashed and rotated on every refresh.
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ip               String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Package {
+  id       String    @id @default(cuid())
+  type     OrderType
+  /// Subscribers / followers, or days for channel promotion.
+  quantity Int
+  priceEtb Int
+  /// Free YouTube watch hours included with the package (0 = none).
+  watchHours Int     @default(0)
+  popular  Boolean   @default(false)
+  active   Boolean   @default(true)
+
+  orders Order[]
+
+  @@unique([type, quantity])
+}
+
+model Listing {
+  id         String        @id @default(cuid())
+  platform   Platform
+  name       String
+  profileUrl String
+  audience   String
+  includes   String
+  priceEtb   Int
+  status     ListingStatus @default(IN_REVIEW)
+  sellerId   String
+  createdAt  DateTime      @default(now())
+
+  seller User    @relation(fields: [sellerId], references: [id])
+  orders Order[]
+
+  @@index([status, platform])
+}
+
+/// Creators showcased on the home and channel promotion pages.
+model FeaturedChannel {
+  id          String   @id @default(cuid())
+  name        String
+  handle      String
+  url         String
+  platform    Platform
+  category    String
+  description String
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([active, sortOrder])
+}
+
+model Order {
+  id               String      @id @default(cuid())
+  ref              String      @unique
+  type             OrderType
+  status           OrderStatus @default(PENDING)
+  userId           String
+  /// Channel URL / @handle / account profile.
+  target           String
+  targetNormalized String
+  quantity         Int?
+  /// Free watch hours that came with the package, copied at order time.
+  watchHours       Int         @default(0)
+  amountEtb        Int
+  paymentMethod    String?
+  /// Free-form details (account sale: name, audience, phone …).
+  details          Json?
+  rejectionReason  String?
+  packageId        String?
+  listingId        String?
+  receiptFileId    String?     @unique
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  user       User         @relation(fields: [userId], references: [id])
+  package    Package?     @relation(fields: [packageId], references: [id])
+  listing    Listing?     @relation(fields: [listingId], references: [id])
+  receipt    File?        @relation(fields: [receiptFileId], references: [id])
+  deliveries Delivery[]
+  events     OrderEvent[]
+
+  @@index([type, status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model OrderEvent {
+  id        String       @id @default(cuid())
+  orderId   String
+  from      OrderStatus?
+  to        OrderStatus
+  actorId   String
+  note      String?
+  createdAt DateTime     @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+}
+
+/// Accounts used to subscribe / follow when delivering orders. Never store their passwords here.
+model DeliveryEmail {
+  id        String     @id @default(cuid())
+  address   String     @unique
+  platforms Platform[]
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+
+  deliveries Delivery[]
+}
+
+/// "Which email subscribed / followed for which order".
+model Delivery {
+  id               String   @id @default(cuid())
+  orderId          String
+  deliveryEmailId  String
+  platform         Platform
+  targetNormalized String
+  createdById      String
+  createdAt        DateTime @default(now())
+
+  order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  email DeliveryEmail @relation(fields: [deliveryEmailId], references: [id])
+
+  @@unique([orderId, deliveryEmailId])
+  /// One email can never subscribe to / follow the same target twice.
+  @@unique([platform, targetNormalized, deliveryEmailId])
+}
+
+/// One send action (broadcast, direct message or automatic order update) — the admin history.
+model NotificationBatch {
+  id         String           @id @default(cuid())
+  kind       NotificationKind
+  /// "all" or a user id.
+  audience   String
+  title      String
+  body       String
+  orderId    String?
+  recipients Int
+  createdById String?
+  createdAt  DateTime         @default(now())
+
+  notifications Notification[]
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  batchId   String
+  userId    String
+  readAt    DateTime?
+  emailedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  batch NotificationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model File {
+  id        String   @id @default(cuid())
+  /// Object key in the R2 bucket.
+  key       String   @unique
+  name      String
+  mime      String
+  size      Int
+  ownerId   String
+  createdAt DateTime @default(now())
+
+  owner User   @relation(fields: [ownerId], references: [id])
+  order Order?
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  entity    String
+  entityId  String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}
