@@ -8,6 +8,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   CLIENT_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
+  DIRECT_URL: z.string().min(1).optional(),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
@@ -21,6 +22,11 @@ const schema = z.object({
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_CREATE_BUCKET: bool.default('false'),
   SMTP_URL: z.string().optional().default(''),
+  /** Google sign-in (optional). Leave empty to hide it. */
+  GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  /** Defaults to CLIENT_URL + /api/v1/auth/google/callback (through the web app's /api proxy, so cookies are first-party). */
+  GOOGLE_REDIRECT_URI: z.string().url().optional(),
   MAIL_FROM: z.string().default('MeriBoost <no-reply@meriboost.local>'),
 })
 

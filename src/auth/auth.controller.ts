@@ -1,4 +1,7 @@
-import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Patch, Post, Query, Req, Res } from '@nestjs/common'
+import { randomBytes } from 'node:crypto'
+import { env } from '../config/env'
+import { isStaff } from '../common/auth.decorators'
 import { Throttle } from '@nestjs/throttler'
 import type { Request, Response } from 'express'
 import { z } from 'zod'
@@ -23,9 +26,14 @@ const profileSchema = z.object({
 })
 
 const passwordSchema = z.object({
-  currentPassword: z.string().min(1, 'Enter your current password.').max(128),
+  currentPassword: z.string().max(128).default(''),
   newPassword: password,
 })
+
+const OAUTH_COOKIE = 'mb_oauth'
+const googleRedirectUri = () => env.GOOGLE_REDIRECT_URI ?? `${env.CLIENT_URL}/api/v1/auth/google/callback`
+/** Only same-site relative paths. */
+const safeNext = (value?: string) => (value && value.startsWith('/') && !value.startsWith('//') ? value : null)
 
 const client = (req: Request) => ({ userAgent: req.headers['user-agent'], ip: req.ip })
 
@@ -76,6 +84,78 @@ export class AuthController {
   async signOut(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     await this.auth.signOut(req.cookies?.[REFRESH_COOKIE])
     clearAuthCookies(res)
+  }
+
+  // ── Google sign-in ──
+  /** Sends the browser to Google. `next` is where to land afterwards (same-site paths only). */
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get('google')
+  google(@Query('next') next: string | undefined, @Res() res: Response) {
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return res.redirect(302, `${env.CLIENT_URL}/sign-in?error=google_unavailable`)
+    const state = randomBytes(24).toString('base64url')
+    res.cookie(OAUTH_COOKIE, JSON.stringify({ state, next: safeNext(next) }), {
+      httpOnly: true,
+      secure: env.COOKIE_SECURE,
+      sameSite: 'lax',
+      path: '/api/v1/auth/google',
+      maxAge: 10 * 60_000,
+    })
+    const params = new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      redirect_uri: googleRedirectUri(),
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      prompt: 'select_account',
+    })
+    res.redirect(302, `https://accounts.google.com/o/oauth2/v2/auth?${params}`)
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get('google/callback')
+  async googleCallback(@Query() query: Record<string, string | undefined>, @Req() req: Request, @Res() res: Response) {
+    const failTo = (reason: string) => res.redirect(302, `${env.CLIENT_URL}/sign-in?error=${reason}`)
+    let saved: { state?: string; next?: string | null } = {}
+    try {
+      saved = JSON.parse(req.cookies?.[OAUTH_COOKIE] ?? '{}')
+    } catch {
+      /* treated as a missing state below */
+    }
+    res.clearCookie(OAUTH_COOKIE, { path: '/api/v1/auth/google' })
+    if (query.error) return failTo('google_cancelled')
+    if (!query.code || !query.state || query.state !== saved.state) return failTo('google_failed')
+
+    try {
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code: query.code,
+          client_id: env.GOOGLE_CLIENT_ID,
+          client_secret: env.GOOGLE_CLIENT_SECRET,
+          redirect_uri: googleRedirectUri(),
+          grant_type: 'authorization_code',
+        }),
+      })
+      if (!tokenRes.ok) return failTo('google_failed')
+      const { access_token } = (await tokenRes.json()) as { access_token?: string }
+      const profileRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${access_token}` } })
+      if (!profileRes.ok) return failTo('google_failed')
+      const profile = (await profileRes.json()) as { sub?: string; email?: string; email_verified?: boolean; name?: string }
+      if (!profile.sub || !profile.email || !profile.email_verified) return failTo('google_unverified')
+
+      const { user, accessToken, refreshToken } = await this.auth.googleSignIn(
+        { sub: profile.sub, email: profile.email, name: profile.name ?? '' },
+        client(req),
+      )
+      setAuthCookies(res, accessToken, refreshToken)
+      res.redirect(302, `${env.CLIENT_URL}${saved.next ?? (isStaff(user.role) ? '/admin' : '/my-promotions')}`)
+    } catch (error) {
+      if ((error as { response?: { code?: string } })?.response?.code === 'SUSPENDED') return failTo('suspended')
+      return failTo('google_failed')
+    }
   }
 
   @Get('me')

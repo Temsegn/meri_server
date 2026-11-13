@@ -24,6 +24,7 @@ COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
 USER node
 EXPOSE 4000
-HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
-  CMD node -e "fetch('http://localhost:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# Uses $PORT when the platform sets it (Render does), else 4000. Migrations run first, so allow a long start period.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=5 \
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||4000)+'/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["./docker-entrypoint.sh"]

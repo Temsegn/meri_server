@@ -20,6 +20,8 @@ export const publicUser = (user: User) => ({
   role: user.role,
   status: user.status,
   createdAt: user.createdAt,
+  hasPassword: Boolean(user.passwordHash),
+  hasGoogle: Boolean(user.googleId),
 })
 
 @Injectable()
@@ -83,10 +85,27 @@ export class AuthService {
     })
   }
 
+  /**
+   * Google sign-in: match by Google id, else link the account with the same (verified) email, else create a customer.
+   */
+  async googleSignIn(profile: { sub: string; email: string; name: string }, client: ClientInfo) {
+    const email = profile.email.trim().toLowerCase()
+    let user = await this.prisma.user.findUnique({ where: { googleId: profile.sub } })
+    if (!user) {
+      const existing = await this.prisma.user.findUnique({ where: { email } })
+      user = existing
+        ? await this.prisma.user.update({ where: { id: existing.id }, data: { googleId: profile.sub } })
+        : await this.prisma.user.create({ data: { email, name: profile.name.trim().slice(0, 80) || email.split('@')[0], googleId: profile.sub } })
+    }
+    if (user.status === 'SUSPENDED') fail(HttpStatus.FORBIDDEN, 'SUSPENDED', 'This account has been suspended. Contact support.')
+    return { user, ...(await this.startSession(user, client)) }
+  }
+
   /** Verifies the current password, stores the new one and signs out every other device. */
   async changePassword(userId: string, sessionId: string, input: { currentPassword: string; newPassword: string }) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } })
-    if (!(await verify(user.passwordHash, input.currentPassword).catch(() => false))) {
+    // Accounts created with Google have no password yet: they may set one without a current password.
+    if (user.passwordHash && !(await verify(user.passwordHash, input.currentPassword).catch(() => false))) {
       fail(HttpStatus.BAD_REQUEST, 'VALIDATION', 'Your current password is incorrect.', { currentPassword: 'Incorrect password.' })
     }
     if (input.currentPassword === input.newPassword) {

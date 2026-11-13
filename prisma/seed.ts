@@ -35,8 +35,8 @@ function weighted<T extends string>(weights: Partial<Record<T, number>>): T {
 
 /** quantity → price (ETB). Instagram and promotion prices are placeholders — edit before launch. */
 const PACKAGES: Record<'YOUTUBE_SUBSCRIBERS' | 'INSTAGRAM_FOLLOWERS', [number, number][]> = {
-  YOUTUBE_SUBSCRIBERS: [[50, 750], [100, 1500], [200, 3000], [300, 4500], [500, 8000], [700, 11500], [1000, 18000]],
-  INSTAGRAM_FOLLOWERS: [[100, 900], [250, 2100], [500, 4000], [1000, 7500]],
+  YOUTUBE_SUBSCRIBERS: [[50, 750], [100, 1500], [200, 3000], [300, 4500], [500, 8000], [600, 9800], [700, 11500], [900, 14800], [1000, 18000]],
+  INSTAGRAM_FOLLOWERS: [[100, 900], [250, 2100], [500, 4000], [600, 4700], [900, 6800], [1000, 7500]],
 }
 const POPULAR: Partial<Record<OrderType, number>> = { YOUTUBE_SUBSCRIBERS: 500, INSTAGRAM_FOLLOWERS: 500 }
 
@@ -242,7 +242,8 @@ async function main() {
     for (const [quantity, priceEtb] of rows) {
       await prisma.package.upsert({
         where: { type_quantity: { type, quantity } },
-        create: { type, quantity, priceEtb, popular: POPULAR[type] === quantity },
+        // New YouTube packages come with free watch hours: 1 up to 300 subscribers, 2 from 500.
+        create: { type, quantity, priceEtb, popular: POPULAR[type] === quantity, watchHours: type === 'YOUTUBE_SUBSCRIBERS' ? (quantity <= 300 ? 1 : 2) : 0 },
         update: {},
       })
     }
