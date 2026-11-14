@@ -307,6 +307,8 @@ model BoostReport {
   /// The task id generated on the phone; re-sending the same task updates this row.
   clientTaskId  String
   channelUrl    String
+  /// normalizeTarget(channelUrl) — the same key orders use, so reports group per channel and match YouTube orders.
+  channelKey    String
   status        String
   subscribeGoal Int      @default(0)
   newCount      Int      @default(0)
@@ -321,6 +323,7 @@ model BoostReport {
 
   @@unique([userId, clientTaskId])
   @@index([userId, createdAt])
+  @@index([channelKey, startedAt])
 }
 
 /// One YouTube account (email) checked in a report.

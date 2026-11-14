@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler'
 import { z } from 'zod'
 import { CurrentUser, Staff, type AuthUser } from '../common/auth.decorators'
 import { ZodPipe } from '../common/zod.pipe'
+import { normalizeTarget } from '../common/targets'
 import { PrismaService } from '../prisma/prisma.service'
 
 const accountSchema = z.object({
@@ -62,6 +63,7 @@ export class BoostController {
     const newCount = accounts.filter((a) => a.newlySubscribed).length
     const data = {
       channelUrl: body.channelUrl,
+      channelKey: normalizeTarget(body.channelUrl),
       status: body.status,
       subscribeGoal: body.subscribeGoal,
       newCount,
@@ -112,9 +114,42 @@ export class BoostController {
   @Get('admin/boost-reports')
   async adminReports() {
     const [items, rows] = await Promise.all([
-      this.prisma.boostReport.findMany({ orderBy: { startedAt: 'desc' }, take: 200, include: reportInclude }),
+      this.prisma.boostReport.findMany({ orderBy: { startedAt: 'desc' }, take: 500, include: reportInclude }),
       this.prisma.boostReportAccount.findMany({ select: emailRowSelect }),
     ])
-    return { items, emails: summarizeEmails(rows) }
+
+    // One entry per YouTube channel: every report for it, and the YouTube subscriber orders for the same channel.
+    const keys = [...new Set(items.map((report) => report.channelKey))]
+    const orders = keys.length
+      ? await this.prisma.order.findMany({
+          where: { type: 'YOUTUBE_SUBSCRIBERS', targetNormalized: { in: keys } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, ref: true, status: true, quantity: true, target: true, targetNormalized: true, createdAt: true, user: { select: { name: true, email: true } } },
+        })
+      : []
+    const channels = keys.map((key) => {
+      const reports = items.filter((report) => report.channelKey === key)
+      const newEmails = new Set<string>()
+      const checkedEmails = new Set<string>()
+      for (const report of reports) {
+        for (const account of report.accounts) {
+          checkedEmails.add(account.email)
+          if (account.newlySubscribed) newEmails.add(account.email)
+        }
+      }
+      return {
+        channelKey: key,
+        channelUrl: reports[0].channelUrl,
+        reportIds: reports.map((report) => report.id),
+        reportCount: reports.length,
+        newSubscribers: newEmails.size,
+        newEmails: [...newEmails].sort(),
+        checkedEmails: checkedEmails.size,
+        lastReportAt: reports[0].startedAt,
+        orders: orders.filter((order) => order.targetNormalized === key).map(({ targetNormalized: _key, ...order }) => order),
+      }
+    })
+
+    return { items, emails: summarizeEmails(rows), channels }
   }
 }
