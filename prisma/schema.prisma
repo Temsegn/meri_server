@@ -77,6 +77,7 @@ model User {
   notifications Notification[]
   files         File[]
   listings      Listing[]
+  boostReports  BoostReport[]
 }
 
 /// One row per signed-in device. The refresh token is stored hashed and rotated on every refresh.
@@ -297,4 +298,43 @@ model PasswordReset {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+/// One account check sent from the Meri Boost phone app (one channel, many YouTube accounts).
+model BoostReport {
+  id            String   @id @default(cuid())
+  userId        String
+  /// The task id generated on the phone; re-sending the same task updates this row.
+  clientTaskId  String
+  channelUrl    String
+  status        String
+  subscribeGoal Int      @default(0)
+  newCount      Int      @default(0)
+  checkedCount  Int      @default(0)
+  errorMessage  String?
+  startedAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts BoostReportAccount[]
+
+  @@unique([userId, clientTaskId])
+  @@index([userId, createdAt])
+}
+
+/// One YouTube account (email) checked in a report.
+model BoostReportAccount {
+  id                String   @id @default(cuid())
+  reportId          String
+  email             String
+  label             String
+  subscriptionState String
+  newlySubscribed   Boolean  @default(false)
+  checkedAt         DateTime
+
+  report BoostReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, email])
+  @@index([email])
 }

@@ -12,10 +12,11 @@ import { AdminOrdersService } from './admin/admin-orders.service'
 import { AdminOverviewController } from './admin/admin-overview.controller'
 import { AdminCatalogController } from './admin/admin-catalog.controller'
 import { AdminTeamController } from './admin/admin-team.controller'
+import { BoostController } from './boost/boost.controller'
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]), CoreModule, AuthModule],
-  controllers: [ShopController, AdminController, AdminOverviewController, AdminCatalogController, AdminTeamController],
+  controllers: [ShopController, AdminController, AdminOverviewController, AdminCatalogController, AdminTeamController, BoostController],
   providers: [
     OrdersService,
     AdminOrdersService,
