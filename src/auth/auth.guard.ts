@@ -25,7 +25,9 @@ export class AuthGuard implements CanActivate {
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets)) return true
 
     const req = context.switchToHttp().getRequest<AuthedRequest>()
-    const token: string | undefined = req.cookies?.[ACCESS_COOKIE]
+    // Browsers send the access token as a cookie; the mobile app sends `Authorization: Bearer <token>`.
+    const bearer = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
+    const token: string | undefined = bearer ?? req.cookies?.[ACCESS_COOKIE]
     if (!token) fail(HttpStatus.UNAUTHORIZED, 'UNAUTHENTICATED', 'Please sign in.')
 
     let payload: AccessPayload

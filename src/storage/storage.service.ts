@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -31,6 +32,16 @@ export class StorageService implements OnModuleInit {
     await this.client.send(
       new PutObjectCommand({ Bucket: env.S3_BUCKET, Key: key, Body: body, ContentType: contentType }),
     )
+  }
+
+  /** Object body as a stream (for proxying to clients that can't reach the bucket host, like the mobile app). */
+  async get(key: string) {
+    const res = await this.client.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }))
+    return { body: res.Body as NodeJS.ReadableStream, contentType: res.ContentType, length: res.ContentLength }
+  }
+
+  async delete(key: string) {
+    await this.client.send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }))
   }
 
   /** Signed download URL, valid for `expiresIn` seconds. */

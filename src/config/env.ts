@@ -28,6 +28,14 @@ const schema = z.object({
   /** Defaults to CLIENT_URL + /api/v1/auth/google/callback (through the web app's /api proxy, so cookies are first-party). */
   GOOGLE_REDIRECT_URI: z.string().url().optional(),
   MAIL_FROM: z.string().default('MeriBoost <no-reply@meriboost.local>'),
+  /**
+   * Extra Google OAuth client ids whose ID tokens the mobile app may send (comma-separated).
+   * The Flutter app normally requests tokens for GOOGLE_CLIENT_ID (its serverClientId), which is always accepted.
+   */
+  GOOGLE_MOBILE_CLIENT_IDS: z.string().optional().default(''),
+  /** Meri Assistant (Gemini). Leave the key empty to turn the assistant off. */
+  GEMINI_API_KEY: z.string().optional().default(''),
+  GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
 })
 
 /**

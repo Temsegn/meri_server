@@ -78,6 +78,9 @@ model User {
   files         File[]
   listings      Listing[]
   boostReports  BoostReport[]
+  syncState     SyncState?
+  syncRecords   SyncRecord[]
+  syncBlobs     SyncBlob[]
 }
 
 /// One row per signed-in device. The refresh token is stored hashed and rotated on every refresh.
@@ -340,4 +343,48 @@ model BoostReportAccount {
 
   @@unique([reportId, email])
   @@index([email])
+}
+
+// ── Meri app sync (offline-first mobile) ──
+
+/// Per-user change counter. Every accepted write gets the next `rev`, so clients pull "everything after rev N".
+model SyncState {
+  userId String @id
+  rev    BigInt @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// One item of a user's Meri data (a habit, task, note, a day's water count, the settings…).
+/// `data` is the item's JSON exactly as the app stores it; deletions are kept as tombstones.
+model SyncRecord {
+  userId     String
+  /// e.g. "habits", "tasks", "water", "meta".
+  collection String
+  /// Item id, map key (a date) or field name for "meta".
+  key        String
+  data       Json?
+  deleted    Boolean  @default(false)
+  /// When the user made the change on their device (last writer wins).
+  updatedAt  DateTime
+  rev        BigInt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, collection, key])
+  @@index([userId, rev])
+}
+
+/// File contents for the Files app, stored in object storage under `key`.
+model SyncBlob {
+  userId    String
+  id        String
+  key       String   @unique
+  mime      String
+  size      Int
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, id])
 }

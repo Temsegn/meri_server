@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common'
 import { JwtModule } from '@nestjs/jwt'
 import { env } from '../config/env'
 import { AuthController } from './auth.controller'
+import { MobileAuthController } from './mobile-auth.controller'
 import { AuthService } from './auth.service'
 import { AuthGuard } from './auth.guard'
 
@@ -14,7 +15,7 @@ import { AuthGuard } from './auth.guard'
       verifyOptions: { algorithms: ['HS256'] },
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, MobileAuthController],
   providers: [AuthService, AuthGuard],
   exports: [AuthService, AuthGuard, JwtModule],
 })
