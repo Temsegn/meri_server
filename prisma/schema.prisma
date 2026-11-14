@@ -55,6 +55,24 @@ enum ListingStatus {
 enum NotificationKind {
   MANUAL
   ORDER_UPDATE
+  SUBSCRIPTION_UPDATE
+}
+
+enum SubscriptionPlan {
+  SIX_MONTHS
+  ONE_YEAR
+}
+
+enum SubscriptionPayMethod {
+  TELEBIRR
+  CBE
+  ABYSSINIA
+}
+
+enum SubscriptionStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model User {
@@ -81,6 +99,7 @@ model User {
   syncState     SyncState?
   syncRecords   SyncRecord[]
   syncBlobs     SyncBlob[]
+  subscriptions Subscription[]
 }
 
 /// One row per signed-in device. The refresh token is stored hashed and rotated on every refresh.
@@ -269,6 +288,7 @@ model File {
 
   owner User   @relation(fields: [ownerId], references: [id])
   order Order?
+  subscription Subscription?
 }
 
 model AuditLog {
@@ -387,4 +407,29 @@ model SyncBlob {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, id])
+}
+
+/// Meri Premium: the user pays by bank/mobile money, uploads the receipt, and an admin approves it.
+/// Premium is active while an APPROVED subscription's [startsAt, endsAt) covers now.
+model Subscription {
+  id              String                @id @default(cuid())
+  userId          String
+  plan            SubscriptionPlan
+  amountEtb       Int
+  method          SubscriptionPayMethod
+  receiptFileId   String                @unique
+  status          SubscriptionStatus    @default(PENDING)
+  rejectionReason String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  startsAt        DateTime?
+  endsAt          DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  user    User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receipt File @relation(fields: [receiptFileId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
 }

@@ -18,16 +18,19 @@ import { SyncService } from './sync/sync.service'
 import { AssistantController } from './assistant/assistant.controller'
 import { AssistantService } from './assistant/assistant.service'
 import { GeminiClient } from './assistant/gemini.client'
+import { AdminSubscriptionsController, SubscriptionsController } from './subscriptions/subscriptions.controller'
+import { SubscriptionsService } from './subscriptions/subscriptions.service'
 
 @Module({
   imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]), CoreModule, AuthModule],
-  controllers: [ShopController, AdminController, AdminOverviewController, AdminCatalogController, AdminTeamController, BoostController, SyncController, AssistantController],
+  controllers: [ShopController, AdminController, AdminOverviewController, AdminCatalogController, AdminTeamController, BoostController, SyncController, AssistantController, SubscriptionsController, AdminSubscriptionsController],
   providers: [
     OrdersService,
     AdminOrdersService,
     SyncService,
     AssistantService,
     GeminiClient,
+    SubscriptionsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
