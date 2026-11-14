@@ -35,8 +35,8 @@ function weighted<T extends string>(weights: Partial<Record<T, number>>): T {
 
 /** quantity → price (ETB). Instagram and promotion prices are placeholders — edit before launch. */
 const PACKAGES: Record<'YOUTUBE_SUBSCRIBERS' | 'INSTAGRAM_FOLLOWERS', [number, number][]> = {
-  YOUTUBE_SUBSCRIBERS: [[50, 750], [100, 1500], [200, 3000], [300, 4500], [500, 8000], [600, 9800], [700, 11500], [900, 14800], [1000, 18000]],
-  INSTAGRAM_FOLLOWERS: [[100, 900], [250, 2100], [500, 4000], [600, 4700], [900, 6800], [1000, 7500]],
+  YOUTUBE_SUBSCRIBERS: [[20, 350], [50, 750], [100, 1400], [200, 2600], [300, 3750], [500, 5750], [600, 6750], [700, 7700], [900, 9300], [1000, 10000]],
+  INSTAGRAM_FOLLOWERS: [[100, 600], [250, 1450], [500, 2750], [600, 3250], [900, 4600], [1000, 5000]],
 }
 const POPULAR: Partial<Record<OrderType, number>> = { YOUTUBE_SUBSCRIBERS: 500, INSTAGRAM_FOLLOWERS: 500 }
 
