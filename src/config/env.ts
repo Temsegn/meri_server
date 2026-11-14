@@ -30,7 +30,22 @@ const schema = z.object({
   MAIL_FROM: z.string().default('MeriBoost <no-reply@meriboost.local>'),
 })
 
-const parsed = schema.safeParse(process.env)
+/**
+ * Undo common copy-paste mistakes from hosting dashboards: a value that repeats its own key
+ * ("SMTP_URL=smtps://…") or keeps the quotes from a .env file ("\"MeriBoost <…>\"").
+ */
+function clean(source: NodeJS.ProcessEnv) {
+  const out: Record<string, string | undefined> = {}
+  for (const [key, raw] of Object.entries(source)) {
+    let value = raw?.trim()
+    if (value?.startsWith(`${key}=`)) value = value.slice(key.length + 1).trim()
+    if (value && value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.at(-1) === value[0]) value = value.slice(1, -1)
+    out[key] = value
+  }
+  return out
+}
+
+const parsed = schema.safeParse(clean(process.env))
 if (!parsed.success) {
   console.error('Invalid environment configuration:', parsed.error.flatten().fieldErrors)
   process.exit(1)

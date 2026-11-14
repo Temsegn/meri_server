@@ -5,7 +5,22 @@ import { env } from '../config/env'
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name)
-  private readonly transport: Transporter | null = env.SMTP_URL ? nodemailer.createTransport(env.SMTP_URL) : null
+  private readonly transport: Transporter | null = this.createTransport()
+
+  /** A bad SMTP_URL disables email (with a log line) instead of crashing the API. */
+  private createTransport(): Transporter | null {
+    if (!env.SMTP_URL) return null
+    if (!/^smtps?:\/\//.test(env.SMTP_URL)) {
+      this.logger.error('SMTP_URL must start with smtp:// or smtps:// — email is disabled until it is fixed.')
+      return null
+    }
+    try {
+      return nodemailer.createTransport(env.SMTP_URL)
+    } catch (error) {
+      this.logger.error(`SMTP_URL is invalid (${(error as Error).message}) — email is disabled until it is fixed.`)
+      return null
+    }
+  }
 
   /** Sends one email. Returns false (and logs) on failure instead of throwing. */
   async send(to: string, subject: string, text: string): Promise<boolean> {
