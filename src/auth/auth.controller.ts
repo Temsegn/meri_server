@@ -25,6 +25,13 @@ const profileSchema = z.object({
   phone: z.string().trim().max(30).nullable().optional(),
 })
 
+const forgotSchema = z.object({ email })
+const resetSchema = z.object({
+  email,
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code from the email.'),
+  newPassword: password,
+})
+
 const passwordSchema = z.object({
   currentPassword: z.string().max(128).default(''),
   newPassword: password,
@@ -84,6 +91,26 @@ export class AuthController {
   async signOut(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     await this.auth.signOut(req.cookies?.[REFRESH_COOKIE])
     clearAuthCookies(res)
+  }
+
+  // ── Forgot password ──
+  /** Always 204: the response is the same whether or not the email has an account. */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(204)
+  @Post('forgot-password')
+  async forgotPassword(@Body(new ZodPipe(forgotSchema)) body: z.infer<typeof forgotSchema>) {
+    await this.auth.requestPasswordReset(body.email)
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('reset-password')
+  async resetPassword(@Body(new ZodPipe(resetSchema)) body: z.infer<typeof resetSchema>, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { user, accessToken, refreshToken } = await this.auth.resetPassword(body, client(req))
+    setAuthCookies(res, accessToken, refreshToken)
+    return { user: publicUser(user) }
   }
 
   // ── Google sign-in ──

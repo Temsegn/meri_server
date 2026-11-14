@@ -72,6 +72,7 @@ model User {
   updatedAt    DateTime   @updatedAt
 
   sessions      Session[]
+  passwordResets PasswordReset[]
   orders        Order[]
   notifications Notification[]
   files         File[]
@@ -281,4 +282,19 @@ model AuditLog {
 model Counter {
   key   String @id
   value Int    @default(0)
+}
+
+/// One emailed 6-digit code for resetting a password. Only a hash of the code is stored.
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

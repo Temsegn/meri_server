@@ -1,14 +1,18 @@
 import { HttpStatus, Injectable } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { hash, verify } from '@node-rs/argon2'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import type { Role, User } from '@prisma/client'
 import { env } from '../config/env'
 import { fail } from '../common/errors'
+import { MailService } from '../mail/mail.service'
 import { PrismaService } from '../prisma/prisma.service'
 
 export type AccessPayload = { sub: string; sid: string; role: Role }
 type ClientInfo = { userAgent?: string; ip?: string }
+
+const RESET_TTL_MINUTES = 15
+const RESET_MAX_ATTEMPTS = 5
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 
@@ -32,6 +36,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mail: MailService,
   ) {}
 
   async signUp(input: { name: string; email: string; password: string; phone?: string }, client: ClientInfo) {
@@ -115,6 +120,68 @@ export class AuthService {
       this.prisma.user.update({ where: { id: userId }, data: { passwordHash: await hash(input.newPassword) } }),
       this.prisma.session.updateMany({ where: { userId, id: { not: sessionId }, revokedAt: null }, data: { revokedAt: new Date() } }),
     ])
+  }
+
+  // ── Forgot password (6-digit code by email) ──
+
+  /** Emails a reset code if the account exists. Always returns quietly so the response never reveals which emails exist. */
+  async requestPasswordReset(emailInput: string) {
+    const email = emailInput.trim().toLowerCase()
+    const user = await this.prisma.user.findUnique({ where: { email } })
+    if (!user || user.status === 'SUSPENDED') return
+
+    // At most one new code per minute per account.
+    const recent = await this.prisma.passwordReset.findFirst({ where: { userId: user.id, createdAt: { gt: new Date(Date.now() - 60_000) } } })
+    if (recent) return
+
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
+    await this.prisma.$transaction([
+      this.prisma.passwordReset.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } }),
+      this.prisma.passwordReset.create({
+        data: { userId: user.id, codeHash: this.hashCode(user.id, code), expiresAt: new Date(Date.now() + RESET_TTL_MINUTES * 60_000) },
+      }),
+    ])
+    await this.mail.send(
+      user.email,
+      `${code} is your MeriBoost reset code`,
+      `Hi ${user.name},\n\nYour MeriBoost password reset code is: ${code}\n\nIt expires in ${RESET_TTL_MINUTES} minutes. If you did not ask to reset your password, you can ignore this email.`,
+    )
+  }
+
+  /** Checks the code, sets the new password, signs out every device and starts a new session. */
+  async resetPassword(input: { email: string; code: string; newPassword: string }, client: ClientInfo) {
+    const invalid = () => fail(HttpStatus.BAD_REQUEST, 'INVALID_CODE', 'That code is not valid. Check the email or request a new code.', { code: 'Invalid code.' })
+    const user = await this.prisma.user.findUnique({ where: { email: input.email.trim().toLowerCase() } })
+    if (!user) return invalid()
+    if (user.status === 'SUSPENDED') fail(HttpStatus.FORBIDDEN, 'SUSPENDED', 'This account has been suspended. Contact support.')
+
+    const reset = await this.prisma.passwordReset.findFirst({
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!reset) fail(HttpStatus.BAD_REQUEST, 'CODE_EXPIRED', 'This code has expired. Request a new one.', { code: 'Expired — request a new code.' })
+    if (reset.attempts >= RESET_MAX_ATTEMPTS) {
+      fail(HttpStatus.TOO_MANY_REQUESTS, 'TOO_MANY_ATTEMPTS', 'Too many wrong codes. Request a new one.', { code: 'Request a new code.' })
+    }
+
+    const expected = Buffer.from(reset.codeHash, 'hex')
+    const actual = Buffer.from(this.hashCode(user.id, input.code.trim()), 'hex')
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      await this.prisma.passwordReset.update({ where: { id: reset.id }, data: { attempts: { increment: 1 } } })
+      return invalid()
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hash(input.newPassword) } }),
+      this.prisma.passwordReset.update({ where: { id: reset.id }, data: { usedAt: new Date() } }),
+      this.prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ])
+    return { user, ...(await this.startSession(user, client)) }
+  }
+
+  /** HMAC keyed with the server secret, so a database leak does not expose working codes. */
+  private hashCode(userId: string, code: string) {
+    return createHmac('sha256', env.JWT_SECRET).update(`${userId}:${code}`).digest('hex')
   }
 
   revoke(sessionId: string) {
