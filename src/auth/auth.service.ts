@@ -122,6 +122,20 @@ export class AuthService {
     ])
   }
 
+  /** Changes the sign-in email. Needs the current password (when the account has one). */
+  async changeEmail(userId: string, input: { newEmail: string; currentPassword: string }) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } })
+    if (user.passwordHash && !(await verify(user.passwordHash, input.currentPassword).catch(() => false))) {
+      fail(HttpStatus.BAD_REQUEST, 'VALIDATION', 'Your current password is incorrect.', { currentPassword: 'Incorrect password.' })
+    }
+    if (input.newEmail === user.email) {
+      fail(HttpStatus.BAD_REQUEST, 'VALIDATION', 'That is already your email.', { newEmail: 'Same as the current email.' })
+    }
+    const taken = await this.prisma.user.findUnique({ where: { email: input.newEmail }, select: { id: true } })
+    if (taken) fail(HttpStatus.CONFLICT, 'VALIDATION', 'Another account already uses this email.', { newEmail: 'Already in use.' })
+    return this.prisma.user.update({ where: { id: userId }, data: { email: input.newEmail } })
+  }
+
   // ── Forgot password (6-digit code by email) ──
 
   /** Emails a reset code if the account exists. Always returns quietly so the response never reveals which emails exist. */

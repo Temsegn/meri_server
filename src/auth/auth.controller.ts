@@ -32,6 +32,11 @@ const resetSchema = z.object({
   newPassword: password,
 })
 
+const emailChangeSchema = z.object({
+  newEmail: z.string().trim().toLowerCase().email('Enter a valid email address.').max(200),
+  currentPassword: z.string().max(128).default(''),
+})
+
 const passwordSchema = z.object({
   currentPassword: z.string().max(128).default(''),
   newPassword: password,
@@ -196,6 +201,13 @@ export class AuthController {
   @Post('password')
   async changePassword(@CurrentUser() auth: AuthUser, @Body(new ZodPipe(passwordSchema)) body: z.infer<typeof passwordSchema>) {
     await this.auth.changePassword(auth.userId, auth.sessionId, body)
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('email')
+  async changeEmail(@CurrentUser() auth: AuthUser, @Body(new ZodPipe(emailChangeSchema)) body: z.infer<typeof emailChangeSchema>) {
+    const user = await this.auth.changeEmail(auth.userId, body)
+    return { user: publicUser(user) }
   }
 
   @Patch('me')

@@ -49,12 +49,13 @@ const emailRowSelect = { email: true, label: true, newlySubscribed: true, checke
 
 /**
  * Reports from the Meri Boost phone app: which YouTube accounts newly subscribed to which channel.
- * Stored only — nothing is emailed. Admins see them under /admin/boost-reports.
+ * Admin-only (the phone app signs in with an admin account). Nothing is emailed.
  */
 @Controller()
 export class BoostController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Staff()
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('boost/reports')
   async saveReport(@CurrentUser() auth: AuthUser, @Body(new ZodPipe(reportSchema)) body: ReportInput) {
@@ -94,19 +95,6 @@ export class BoostController {
       return saved
     })
     return { report: { id: report.id, newCount, checkedCount: accounts.length } }
-  }
-
-  /** The signed-in user's own reports (used by the phone app). */
-  @Get('boost/reports')
-  async myReports(@CurrentUser() auth: AuthUser) {
-    const items = await this.prisma.boostReport.findMany({ where: { userId: auth.userId }, orderBy: { startedAt: 'desc' }, take: 50, include: reportInclude })
-    return { items }
-  }
-
-  @Get('boost/emails')
-  async myEmails(@CurrentUser() auth: AuthUser) {
-    const rows = await this.prisma.boostReportAccount.findMany({ where: { report: { userId: auth.userId } }, select: emailRowSelect })
-    return { items: summarizeEmails(rows) }
   }
 
   // ── Admin ──
